@@ -54,6 +54,9 @@ ifeq ($(AWS_NITRO),1)
 	VARIANT = -awsnitro
 	FEATURE_FLAGS := --features aws-nitro,net
 endif
+ifeq ($(VHOST_USER),1)
+    FEATURE_FLAGS += --features vhost-user
+endif
 
 CLANG = /usr/bin/clang
 

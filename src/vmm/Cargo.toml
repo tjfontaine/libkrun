@@ -16,6 +16,11 @@ gpu = ["devices/gpu", "krun_display"]
 snd = ["devices/snd"]
 input = ["devices/input", "krun_input"]
 aws-nitro = []
+# Back guest RAM regions with POSIX-SHM fds so a vhost-user backend
+# can receive them via SET_MEM_TABLE. Off by default: when off, the
+# guest-memory allocator is byte-identical to the upstream
+# anonymous-mmap path.
+vhost-user = ["devices/vhost-user"]
 
 [dependencies]
 crossbeam-channel = ">=0.5.15"
@@ -28,6 +33,7 @@ vm-memory = { version = "0.17.0", features = ["backend-mmap"] }
 vmm-sys-util = "0.14"
 krun_display = { path = "../krun_display", optional = true, features = ["bindgen_clang_runtime"] }
 krun_input = { path = "../krun_input", optional = true, features = ["bindgen_clang_runtime"] }
+krun_virtio_conduit = { package = "krun-virtio-conduit", version = "=0.1.0-1.18.0", path = "../../../../../host/virtio-conduit" }
 
 arch = { path = "../arch" }
 arch_gen = { path = "../arch_gen" }

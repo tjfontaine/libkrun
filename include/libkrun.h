@@ -512,6 +512,31 @@ int32_t krun_add_net_tap(uint32_t ctx_id,
 int32_t krun_set_passt_fd(uint32_t ctx_id, int fd);
 
 /**
+ * Attach a vhost-user device by UNIX socket path. libkrun's
+ * vhost-user frontend connects to this socket as the master and
+ * consumes whatever device the backend exposes.
+ *
+ * Notes:
+ *  libkrun's current vhost-user frontend supports one device
+ *  type (virtio-id 42). Multiple calls accumulate; the frontend
+ *  reads the first entry today. The transport contract is
+ *  device-type-agnostic so future libkrun versions can dispatch
+ *  on what the backend advertises.
+ *
+ * Requires libkrun to be built with the `vhost-user` Cargo
+ * feature; returns -ENOSYS otherwise.
+ *
+ * Arguments:
+ *  "ctx_id"        - the configuration context ID.
+ *  "socket_path"   - a null-terminated UNIX socket path the
+ *                    backend daemon is listening on.
+ *
+ * Returns:
+ *  Zero on success or a negative error number on failure.
+ */
+int32_t krun_add_vhost_user_device(uint32_t ctx_id, const char *socket_path);
+
+/**
  * DEPRECATED. Use krun_add_net_unixgram instead.
  *
  * Configures the networking to use gvproxy in vfkit mode.

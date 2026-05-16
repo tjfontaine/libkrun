@@ -1129,6 +1129,50 @@ pub unsafe extern "C" fn krun_add_net_tap(
     -libc::EINVAL
 }
 
+/// Attach a vhost-user device by UNIX socket path. libkrun's
+/// vhost-user frontend connects to this socket as the master and
+/// consumes whatever device the backend exposes (today: device
+/// type 42 — the bifrost conduit; future libkrun versions may
+/// dispatch on the backend's advertised type). Multiple calls
+/// accumulate; libkrun's current frontend reads the first entry.
+///
+/// Returns 0 on success, -EINVAL on a bad path, -ENOENT on a
+/// missing context, -ENOSYS if libkrun was built without the
+/// `vhost-user` feature.
+#[allow(clippy::missing_safety_doc)]
+#[no_mangle]
+pub unsafe extern "C" fn krun_add_vhost_user_device(
+    ctx_id: u32,
+    c_socket_path: *const c_char,
+) -> i32 {
+    if c_socket_path.is_null() {
+        return -libc::EINVAL;
+    }
+    let socket_path = match CStr::from_ptr(c_socket_path).to_str() {
+        Ok(s) => s,
+        Err(_) => return -libc::EINVAL,
+    };
+    #[cfg(feature = "vhost-user")]
+    {
+        match CTX_MAP.lock().unwrap().entry(ctx_id) {
+            Entry::Occupied(mut ctx_cfg) => {
+                ctx_cfg
+                    .get_mut()
+                    .vmr
+                    .vhost_user_device_sockets
+                    .push(PathBuf::from(socket_path));
+            }
+            Entry::Vacant(_) => return -libc::ENOENT,
+        }
+        KRUN_SUCCESS
+    }
+    #[cfg(not(feature = "vhost-user"))]
+    {
+        let _ = (ctx_id, socket_path);
+        -libc::ENOSYS
+    }
+}
+
 #[allow(clippy::missing_safety_doc)]
 #[no_mangle]
 #[cfg(feature = "net")]

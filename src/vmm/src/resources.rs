@@ -191,6 +191,14 @@ pub struct VmResources {
     pub virtio_consoles: Vec<VirtioConsoleConfigMode>,
     /// Enable the embedded dhcp client in init.c
     pub dhcp_client: bool,
+    /// vhost-user-device socket paths. When non-empty AND the
+    /// `vhost-user` Cargo feature is active, libkrun's
+    /// vhost-user frontend connects to the first socket as the
+    /// out-of-process backend for device type 42. The slot is
+    /// transport-shaped: smolvm/krun callers do not need to
+    /// know what device type the backend serves.
+    #[cfg(feature = "vhost-user")]
+    pub vhost_user_device_sockets: Vec<PathBuf>,
 }
 
 impl VmResources {

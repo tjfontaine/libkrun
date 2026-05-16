@@ -18,6 +18,13 @@ pub mod bindings;
 #[cfg(feature = "blk")]
 pub mod block;
 pub mod console;
+/// vhost-user-device frontend for the conduit transport.
+/// Active when the `vhost-user` Cargo feature is on. This is the
+/// sole host-side carrier for the bifrost conduit; the in-tree
+/// `conduit` device was retired once the vhost-user backend hit
+/// parity across smolvm and stock QEMU.
+#[cfg(feature = "vhost-user")]
+pub mod vhost_user_conduit;
 pub mod descriptor_utils;
 pub mod device;
 pub mod file_traits;
@@ -42,6 +49,10 @@ pub mod vsock;
 pub use self::balloon::*;
 #[cfg(feature = "blk")]
 pub use self::block::{Block, CacheType};
+// Conduit constants now live exclusively in the shared
+// `krun-virtio-conduit` crate; re-export only the ones referenced
+// outside of the (deleted) in-tree device.
+pub use krun_virtio_conduit::VIRTIO_SHM_REGION_SIZE;
 pub use self::console::*;
 pub use self::device::*;
 #[cfg(not(any(feature = "tee", feature = "aws-nitro")))]

@@ -974,6 +974,7 @@ pub fn build_microvm(
     attach_balloon_device(&mut vmm, event_manager, intc.clone())?;
     #[cfg(not(feature = "tee"))]
     attach_rng_device(&mut vmm, event_manager, intc.clone())?;
+    attach_conduit_device(&mut vmm, event_manager, intc.clone(), &_shm_manager, vm_resources)?;
     let mut console_id = 0;
     if !vm_resources.disable_implicit_console {
         attach_console_devices(
@@ -1450,7 +1451,7 @@ pub fn create_guest_memory(
     let (firmware_data, firmware_size) = (Some(EDK2_BINARY), Some(EDK2_BINARY.len()));
 
     #[cfg(target_arch = "x86_64")]
-    let (arch_mem_info, mut arch_mem_regions) = match payload {
+    let (arch_mem_info, arch_mem_regions) = match payload {
         #[cfg(not(feature = "tee"))]
         Payload::KernelMmap => {
             let (kernel_guest_addr, kernel_size) =
@@ -1483,7 +1484,7 @@ pub fn create_guest_memory(
         Payload::Firmware => arch::arch_memory_regions(mem_size, None, 0, 0, firmware_size),
     };
     #[cfg(any(target_arch = "aarch64", target_arch = "riscv64"))]
-    let (arch_mem_info, mut arch_mem_regions) = match payload {
+    let (arch_mem_info, arch_mem_regions) = match payload {
         Payload::ExternalKernel(external_kernel) => {
             arch::arch_memory_regions(mem_size, external_kernel.initramfs_size, None)
         }
@@ -1500,6 +1501,9 @@ pub fn create_guest_memory(
                 .map_err(StartMicrovmError::ShmCreate)?;
         }
     }
+    shm_manager
+        .create_conduit_region(devices::virtio::VIRTIO_SHM_REGION_SIZE)
+        .map_err(StartMicrovmError::ShmCreate)?;
     if vm_resources.gpu_virgl_flags.is_some() {
         let size = vm_resources.gpu_shm_size.unwrap_or(1 << 33);
         shm_manager
@@ -1507,9 +1511,38 @@ pub fn create_guest_memory(
             .map_err(StartMicrovmError::ShmCreate)?;
     }
 
-    arch_mem_regions.extend(shm_manager.regions());
+    // When the `vhost-user` feature is on, back each main RAM
+    // region with a POSIX SHM fd so a vhost-user backend can mmap
+    // the same pages via SET_MEM_TABLE. Off-feature, every region
+    // is anonymous mmap (None), byte-identical to upstream libkrun.
+    let mut mmap_regions: Vec<_> = arch_mem_regions
+        .into_iter()
+        .enumerate()
+        .map(|(idx, (addr, size))| {
+            #[cfg(feature = "vhost-user")]
+            {
+                let (file, _name) = crate::shareable_mem::create_guest_ram_shm(idx, size)
+                    .map_err(|e| {
+                        StartMicrovmError::GuestMemoryMmap(format!(
+                            "shareable guest RAM region {idx}: {e}"
+                        ))
+                    })?;
+                Ok::<_, StartMicrovmError>((
+                    addr,
+                    size,
+                    Some(vm_memory::FileOffset::new(file, 0)),
+                ))
+            }
+            #[cfg(not(feature = "vhost-user"))]
+            {
+                let _ = idx;
+                Ok::<_, StartMicrovmError>((addr, size, None))
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    mmap_regions.extend(shm_manager.regions());
 
-    let guest_mem = GuestMemoryMmap::from_ranges(&arch_mem_regions)
+    let guest_mem = GuestMemoryMmap::from_ranges_with_files(&mmap_regions)
         .map_err(|e| StartMicrovmError::GuestMemoryMmap(format!("{e:?}")))?;
 
     let (guest_mem, entry_addr, initrd_config, cmdline) =
@@ -2254,6 +2287,70 @@ fn attach_rng_device(
 
     // The device mutex mustn't be locked here otherwise it will deadlock.
     attach_mmio_device(vmm, id, intc.clone(), rng).map_err(RegisterRngDevice)?;
+
+    Ok(())
+}
+
+fn attach_conduit_device(
+    #[allow(unused_variables)] vmm: &mut Vmm,
+    #[allow(unused_variables)] event_manager: &mut EventManager,
+    #[allow(unused_variables)] intc: IrqChip,
+    #[allow(unused_variables)] shm_manager: &ShmManager,
+    #[allow(unused_variables)] vm_resources: &VmResources,
+) -> std::result::Result<(), StartMicrovmError> {
+    // The bifrost conduit is now served exclusively by an
+    // out-of-process `conduit-backend` over vhost-user. When the
+    // `vhost-user` feature is on AND the caller attached a
+    // vhost-user device via the `krun_add_vhost_user_device` C
+    // ABI function, attach the vhost-user-conduit frontend. With
+    // no socket (or the feature off), the conduit device is
+    // simply absent — libkrun without bifrost tracing.
+    //
+    // The VmResources slot is transport-shaped
+    // (`vhost_user_device_sockets`, not `*_conduit`). libkrun
+    // has one vhost-user frontend today — the conduit — but the
+    // slot can grow to a list keyed by device type without
+    // breaking the C ABI.
+    #[cfg(feature = "vhost-user")]
+    {
+        use self::StartMicrovmError::*;
+        if let Some(socket) = vm_resources
+            .vhost_user_device_sockets
+            .first()
+            .map(|p| p.display().to_string())
+        {
+            let config = devices::virtio::vhost_user_conduit::VhostUserConduitConfig {
+                socket: socket.into(),
+            };
+            let conduit = match devices::virtio::vhost_user_conduit::VhostUserConduit::new(config) {
+                Ok(d) => Arc::new(Mutex::new(d)),
+                Err(err) => {
+                    log::error!("vhost-user-conduit init: {err}");
+                    return Err(StartMicrovmError::RegisterEvent(
+                        polly::event_manager::Error::EpollCreate(err),
+                    ));
+                }
+            };
+            if let Some(shm_region) = shm_manager.conduit_region() {
+                let region = VirtioShmRegion {
+                    host_addr: vmm
+                        .guest_memory
+                        .get_host_address(shm_region.guest_addr)
+                        .map_err(StartMicrovmError::ShmHostAddr)?
+                        as u64,
+                    guest_addr: shm_region.guest_addr.raw_value(),
+                    size: shm_region.size,
+                };
+                conduit.lock().unwrap().set_virtio_shm_region(region);
+            }
+            event_manager
+                .add_subscriber(conduit.clone())
+                .map_err(RegisterEvent)?;
+            let id = "vhost-user-conduit".to_string();
+            attach_mmio_device(vmm, id, intc.clone(), conduit).map_err(RegisterRngDevice)?;
+            log::info!("attached vhost-user-conduit device against backend socket");
+        }
+    }
 
     Ok(())
 }

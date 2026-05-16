@@ -18,6 +18,9 @@ input = ["zerocopy", "krun_input"]
 virgl_resource_map2 = []
 aws-nitro = []
 test_utils = []
+# Active alongside vmm/vhost-user. Switches the conduit device
+# from the in-tree adapter to the vhost-user-device frontend.
+vhost-user = ["dep:vhost", "dep:vmm-sys-util"]
 
 [dependencies]
 bitflags = "1.2.0"
@@ -34,6 +37,14 @@ vm-memory = { version = "0.17", features = ["backend-mmap"] }
 zerocopy = { version = "0.8.26", optional = true, features = ["derive"] }
 krun_display = { path = "../krun_display", optional = true, features = ["bindgen_clang_runtime"] }
 krun_input = { path = "../krun_input", features = ["bindgen_clang_runtime"], optional = true }
+krun_virtio_conduit = { package = "krun-virtio-conduit", version = "=0.1.0-1.18.0", path = "../../../../../host/virtio-conduit" }
+
+# vhost-user master-side connection. Only pulled in when the
+# `vhost-user` feature is active. The libkrun workspace's
+# [patch.crates-io] redirects vmm-sys-util to the bifrost
+# macOS-ported fork so this resolves on macOS too.
+vhost = { version = "0.14", features = ["vhost-user-frontend"], optional = true }
+vmm-sys-util = { version = "0.14", optional = true }
 
 arch = { path = "../arch" }
 utils = { path = "../utils" }

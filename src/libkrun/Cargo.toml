@@ -17,6 +17,9 @@ snd = ["vmm/snd", "devices/snd"]
 input = ["krun_input", "vmm/input", "devices/input"]
 virgl_resource_map2 = ["devices/virgl_resource_map2"]
 aws-nitro = ["vmm/aws-nitro", "devices/aws-nitro", "dep:aws-nitro", "dep:nitro-enclaves"]
+# Plumb shareable guest memory through to vmm so a vhost-user backend
+# can `mmap` it. See vmm/Cargo.toml for the gate's exact semantics.
+vhost-user = ["vmm/vhost-user", "devices/vhost-user"]
 
 [dependencies]
 crossbeam-channel = ">=0.5.15"

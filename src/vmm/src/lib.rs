@@ -18,6 +18,9 @@ pub mod builder;
 pub(crate) mod device_manager;
 /// Resource store for configured microVM resources.
 pub mod resources;
+/// POSIX-SHM-backed guest RAM allocation for vhost-user backends.
+#[cfg(feature = "vhost-user")]
+pub mod shareable_mem;
 /// Signal handling utilities.
 #[cfg(target_os = "linux")]
 pub mod signal_handler;

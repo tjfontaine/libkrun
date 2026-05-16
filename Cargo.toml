@@ -9,3 +9,19 @@ resolver = "2"
 [profile.release]
 #panic = "abort"
 lto = true
+
+# When the `vhost-user` feature is on we need a macOS-portable
+# vmm-sys-util — upstream's sock_ctrl_msg / eventfd / epoll
+# are `cfg(linux|android)`-gated. The bifrost fork (added to the
+# parent repo at third_party/vmm-sys-util) ports those to macOS.
+# Patching at the workspace root applies to every direct and
+# transitive consumer in the libkrun build (devices crate's
+# vhost dep, in particular).
+[patch.crates-io]
+vmm-sys-util = { path = "../../../third_party/vmm-sys-util" }
+# Also redirect vm-memory to the bifrost macOS-shm fork. The
+# patch swaps check_file_offset's lseek-to-end probe for an
+# fstat-based one so POSIX SHM fds (which don't support
+# lseek on macOS) round-trip cleanly through vhost-user
+# SET_MEM_TABLE.
+vm-memory = { path = "../../../third_party/vm-memory" }
