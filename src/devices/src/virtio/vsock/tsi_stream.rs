@@ -733,7 +733,7 @@ impl Proxy for TsiStreamProxy {
             self.pending_accepts -= 1;
             self.push_accept_rsp(0);
             update.signal_queue = true;
-        } else if (req.flags & libc::O_NONBLOCK as u32) != 0 {
+        } else if (req.flags & super::super::bindings::LINUX_O_NONBLOCK as u32) != 0 {
             self.push_accept_rsp(-libc::EWOULDBLOCK);
             update.signal_queue = true;
         } else {
